@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "QueryMsg",
+  "anyOf": [
+    {
+      "type": "object",
+      "required": [
+        "get_contract_info"
+      ],
+      "properties": {
+        "get_contract_info": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "get_facility_info"
+      ],
+      "properties": {
+        "get_facility_info": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "get_pledge"
+      ],
+      "properties": {
+        "get_pledge": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "list_pledge_ids"
+      ],
+      "properties": {
+        "list_pledge_ids": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "list_pledges"
+      ],
+      "properties": {
+        "list_pledges": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}
