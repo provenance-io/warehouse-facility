@@ -2,7 +2,7 @@ use crate::contract_info::{get_contract_info, set_contract_info, ContractInfo};
 use crate::error::ContractError;
 use crate::msg::{Authorize, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, Validate};
 use crate::state::{
-    get_pledge_ids, get_pledges, load_pledge, save_pledge, Asset, Facility, Pledge, PledgeState,
+    get_pledge_ids, get_pledges, load_pledge, save_pledge, Facility, Pledge, PledgeState,
 };
 use cosmwasm_std::{
     attr, coins, entry_point, to_binary, Addr, BankMsg, Binary, Deps, DepsMut, Env, MessageInfo,
@@ -169,7 +169,7 @@ fn propose_pledge(
     _info: MessageInfo,
     contract_info: ContractInfo,
     id: String,
-    assets: Vec<Asset>,
+    assets: Vec<String>,
     total_advance: u64,
     asset_marker_denom: String,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
@@ -179,33 +179,10 @@ fn propose_pledge(
         return Err(ContractError::PledgeAlreadyExists { id: v.id });
     }
 
-    // get the advance rate
-    let advance_rate = Decimal::from_str(&contract_info.facility.advance_rate).map_err(|_| {
-        ContractError::StateError {
-            error: "Invalid advance rate set in facility.".into(),
-        }
-    })?;
-
-    // calculate the total value of the pledged assets
-    let mut total_asset_value: u64 = 0;
-    for asset in assets.clone() {
-        total_asset_value += asset.value;
-    }
-
-    // calculate the total advance
-    let _calculated_total_advance: u64 = advance_rate
-        .div(Decimal::from(100))
-        .mul(Decimal::from(total_asset_value))
-        .to_u64()
-        .unwrap();
-
-    // TODO: ensure that the calculated_total_advance == total_advance (within some tolerance)
-
     // create the pledge
     let pledge = Pledge {
         id,
         assets,
-        total_asset_value,
         total_advance,
         asset_marker_denom: asset_marker_denom.clone(),
         state: PledgeState::Proposed,

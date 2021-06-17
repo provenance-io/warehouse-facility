@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Pledge",
+  "type": "object",
+  "required": [
+    "asset_marker_denom",
+    "assets",
+    "id",
+    "state",
+    "total_advance"
+  ],
+  "properties": {
+    "asset_marker_denom": {
+      "type": "string"
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "id": {
+      "type": "string"
+    },
+    "state": {
+      "$ref": "#/definitions/PledgeState"
+    },
+    "total_advance": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    }
+  },
+  "definitions": {
+    "PledgeState": {
+      "type": "string",
+      "enum": [
+        "proposed",
+        "accepted",
+        "cancelled",
+        "executed",
+        "closed"
+      ]
+    }
+  }
+}
