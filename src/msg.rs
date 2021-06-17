@@ -1,6 +1,6 @@
 use crate::contract_info::ContractInfo;
 use crate::error::ContractError;
-use crate::state::{Asset, Facility};
+use crate::state::Facility;
 use cosmwasm_std::Addr;
 use rust_decimal::prelude::FromStr;
 use rust_decimal::Decimal;
@@ -84,7 +84,7 @@ pub enum ExecuteMsg {
         id: String,
 
         // A list of assets to include in the pledge.
-        assets: Vec<Asset>,
+        assets: Vec<String>,
 
         // The total requested advance for the pledged assets.
         // Must match (within tolerance) the sum of the asset value
@@ -144,8 +144,8 @@ impl Validate for ExecuteMsg {
                     invalid_fields.push("assets");
                 }
                 for asset in assets {
-                    if Uuid::parse_str(&asset.id).is_err() {
-                        invalid_fields.push("asset.id");
+                    if Uuid::parse_str(&asset).is_err() {
+                        invalid_fields.push("asset");
                     }
                 }
 

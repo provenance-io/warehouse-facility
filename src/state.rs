@@ -21,17 +21,10 @@ pub struct Facility {
     // The advance rate of the facility agreement with the warehouse
     // as a percentage (for example: "75.125" = 75.125%).
     pub advance_rate: String,
-}
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct Asset {
-    // The unique identifier of the asset.
-    pub id: String,
-
-    // The whole value of the asset. The advance value of the pledge is
-    // calculated based on the advance rate in the facility terms and the
-    // sum of value of all assets pledged.
-    pub value: u64,
+    // The paydown rate of the facility agreement with the warehouse
+    // as a percentage (for example: "102.25" = 102.25%).
+    pub paydown_rate: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -56,8 +49,7 @@ pub enum PledgeState {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Pledge {
     pub id: String,
-    pub assets: Vec<Asset>,
-    pub total_asset_value: u64,
+    pub assets: Vec<String>,
     pub total_advance: u64,
     pub asset_marker_denom: String,
     pub state: PledgeState,

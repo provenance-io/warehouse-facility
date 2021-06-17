@@ -81,6 +81,7 @@ mod tests {
                     marker_denom: "test.denom.wf1".into(),
                     stablecoin_denom: "test.denom.stable".into(),
                     advance_rate: "75.125".into(),
+                    paydown_rate: "102.25".into(),
                 },
             ),
         );
@@ -109,6 +110,7 @@ mod tests {
                 assert_eq!(contract_info.facility.marker_denom, "test.denom.wf1");
                 assert_eq!(contract_info.facility.stablecoin_denom, "test.denom.stable");
                 assert_eq!(contract_info.facility.advance_rate, "75.125");
+                assert_eq!(contract_info.facility.paydown_rate, "102.25");
             }
             result => panic!("unexpected error: {:?}", result),
         }

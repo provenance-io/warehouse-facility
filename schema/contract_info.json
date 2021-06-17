@@ -45,6 +45,7 @@
         "advance_rate",
         "marker_denom",
         "originator",
+        "paydown_rate",
         "stablecoin_denom",
         "warehouse"
       ],
@@ -57,6 +58,9 @@
         },
         "originator": {
           "$ref": "#/definitions/Addr"
+        },
+        "paydown_rate": {
+          "type": "string"
         },
         "stablecoin_denom": {
           "type": "string"

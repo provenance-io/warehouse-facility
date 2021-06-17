@@ -23,7 +23,7 @@
             "assets": {
               "type": "array",
               "items": {
-                "$ref": "#/definitions/Asset"
+                "type": "string"
               }
             },
             "id": {
@@ -99,24 +99,5 @@
       },
       "additionalProperties": false
     }
-  ],
-  "definitions": {
-    "Asset": {
-      "type": "object",
-      "required": [
-        "id",
-        "value"
-      ],
-      "properties": {
-        "id": {
-          "type": "string"
-        },
-        "value": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0.0
-        }
-      }
-    }
-  }
+  ]
 }
