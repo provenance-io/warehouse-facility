@@ -81,6 +81,14 @@ impl Validate for InstantiateMsg {
             invalid_fields.push("facility.advance_rate");
         }
 
+        // validate the paydown rate
+        let paydown_rate = Decimal::from_str(&self.facility.paydown_rate)
+            .map_err(|_| invalid_fields.push("facility.paydown_rate"))
+            .unwrap();
+        if paydown_rate <= Decimal::from(0) {
+            invalid_fields.push("facility.paydown_rate");
+        }
+
         match invalid_fields.len() {
             0 => Ok(()),
             _ => Err(ContractError::InvalidFields {
