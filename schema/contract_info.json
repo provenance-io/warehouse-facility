@@ -43,6 +43,7 @@
       "type": "object",
       "required": [
         "advance_rate",
+        "escrow_marker",
         "marker_denom",
         "originator",
         "paydown_rate",
@@ -52,6 +53,9 @@
       "properties": {
         "advance_rate": {
           "type": "string"
+        },
+        "escrow_marker": {
+          "$ref": "#/definitions/Addr"
         },
         "marker_denom": {
           "type": "string"

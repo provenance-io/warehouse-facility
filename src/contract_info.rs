@@ -78,6 +78,7 @@ mod tests {
                 Facility {
                     originator: Addr::unchecked("contract_originator"),
                     warehouse: Addr::unchecked("contract_warehouse"),
+                    escrow_marker: Addr::unchecked("escrow_marker"),
                     marker_denom: "test.denom.wf1".into(),
                     stablecoin_denom: "test.denom.stable".into(),
                     advance_rate: "75.125".into(),
@@ -106,6 +107,10 @@ mod tests {
                 assert_eq!(
                     contract_info.facility.warehouse,
                     Addr::unchecked("contract_warehouse")
+                );
+                assert_eq!(
+                    contract_info.facility.escrow_marker,
+                    Addr::unchecked("escrow_marker")
                 );
                 assert_eq!(contract_info.facility.marker_denom, "test.denom.wf1");
                 assert_eq!(contract_info.facility.stablecoin_denom, "test.denom.stable");

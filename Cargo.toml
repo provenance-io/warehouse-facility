@@ -31,7 +31,7 @@ overflow-checks = true
 cosmwasm-std = { version = "0.14.0", features = ["staking"] }
 cosmwasm-storage = { version = "0.14.0" }
 cw-storage-plus = { version = "0.6.0", features = ["iterator"] }
-provwasm-std = { version = "0.14.0" }
+provwasm-std = { version = "0.14.0" } # TODO (branch for metadata): https://github.com/provenance-io/provwasm/tree/feature/metadata
 rust_decimal = { version = "1.12.2", features = ["serde-float"] }
 schemars = "0.8.1"
 serde = { version = "1.0.103", default-features = false, features = ["derive"] }

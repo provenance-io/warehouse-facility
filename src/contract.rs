@@ -10,14 +10,33 @@ use cosmwasm_std::{
 };
 use provwasm_std::{
     activate_marker, bind_name, cancel_marker, create_marker, destroy_marker, finalize_marker,
-    grant_marker_access, transfer_marker_coins, withdraw_coins, MarkerAccess, MarkerType,
-    NameBinding, ProvenanceMsg, ProvenanceQuerier,
+    grant_marker_access, transfer_marker_coins, withdraw_coins, AccessGrant, Marker, MarkerAccess,
+    MarkerType, NameBinding, ProvenanceMsg, ProvenanceQuerier,
 };
 use rust_decimal::prelude::{FromStr, ToPrimitive};
 use rust_decimal::Decimal;
 use std::ops::{Div, Mul};
 
 pub const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+fn vec_contains<T: PartialEq>(a: &[T], b: &[T]) -> bool {
+    let matching = a.iter().filter(|&ae| b.iter().any(|be| be == ae)).count();
+    matching == b.len()
+}
+
+fn marker_has_grant(marker: Marker, grant: AccessGrant) -> bool {
+    let access = marker
+        .permissions
+        .into_iter()
+        .find(|p| p.address == grant.address);
+
+    let mut has_grant = false;
+    if let Some(perm) = access {
+        has_grant = vec_contains(&perm.permissions, &grant.permissions);
+    }
+
+    has_grant
+}
 
 // smart contract initialization entrypoint
 #[entry_point]
@@ -30,14 +49,12 @@ pub fn instantiate(
     // validate the message
     msg.validate()?;
 
+    // get the advance rate
     let advance_rate = Decimal::from_str(&msg.facility.advance_rate).map_err(|_| {
         ContractError::InvalidFields {
             fields: vec![String::from("facility.advance_rate")],
         }
     })?;
-
-    let facility = msg.facility.clone();
-    let contract_addr = env.contract.address.clone();
 
     // calculate the total supply and distribution of facility marker
     let facility_marker_supply: u128 = 10u128.pow(advance_rate.scale() + 2);
@@ -54,7 +71,7 @@ pub fn instantiate(
         msg.bind_name,
         msg.contract_name,
         CONTRACT_VERSION.into(),
-        msg.facility,
+        msg.facility.clone(),
     );
     set_contract_info(deps.storage, &contract_info)?;
 
@@ -64,21 +81,21 @@ pub fn instantiate(
     // create name binding
     messages.push(bind_name(
         contract_info.bind_name,
-        env.contract.address,
+        env.contract.address.clone(),
         NameBinding::Restricted,
     )?);
 
     // create facility marker
     messages.push(create_marker(
         facility_marker_supply,
-        facility.marker_denom.clone(),
+        msg.facility.marker_denom.clone(),
         MarkerType::Restricted,
     )?);
 
     // set privileges on the facility marker
     messages.push(grant_marker_access(
-        facility.marker_denom.clone(),
-        contract_addr,
+        msg.facility.marker_denom.clone(),
+        env.contract.address,
         vec![
             MarkerAccess::Admin,
             MarkerAccess::Delete,
@@ -89,25 +106,25 @@ pub fn instantiate(
     )?);
 
     // finalize the facility marker
-    messages.push(finalize_marker(facility.marker_denom.clone())?);
+    messages.push(finalize_marker(msg.facility.marker_denom.clone())?);
 
     // activate the facility marker
-    messages.push(activate_marker(facility.marker_denom.clone())?);
+    messages.push(activate_marker(msg.facility.marker_denom.clone())?);
 
     // withdraw the facility marker to the warehouse address
     messages.push(withdraw_coins(
-        facility.marker_denom.clone(),
+        msg.facility.marker_denom.clone(),
         facility_marker_to_warehouse,
-        facility.marker_denom.clone(),
-        Addr::unchecked(facility.warehouse),
+        msg.facility.marker_denom.clone(),
+        Addr::unchecked(msg.facility.warehouse),
     )?);
 
     // withdraw the facility marker to the originator address
     messages.push(withdraw_coins(
-        facility.marker_denom.clone(),
+        msg.facility.marker_denom.clone(),
         facility_marker_to_originator,
-        facility.marker_denom.clone(),
-        Addr::unchecked(facility.originator),
+        msg.facility.marker_denom.clone(),
+        Addr::unchecked(msg.facility.originator),
     )?);
 
     // build response
@@ -179,6 +196,20 @@ fn propose_pledge(
         return Err(ContractError::PledgeAlreadyExists { id: v.id });
     }
 
+    // ensure the contract has privs on the escrow marker
+    let querier = ProvenanceQuerier::new(&deps.querier);
+    let escrow_marker =
+        querier.get_marker_by_address(contract_info.facility.escrow_marker.clone())?;
+    if !marker_has_grant(
+        escrow_marker,
+        AccessGrant {
+            address: env.contract.address.clone(),
+            permissions: vec![MarkerAccess::Transfer, MarkerAccess::Withdraw],
+        },
+    ) {
+        return Err(ContractError::MissingEscrowMarkerGrant {});
+    }
+
     // create the pledge
     let pledge = Pledge {
         id,
@@ -190,6 +221,8 @@ fn propose_pledge(
 
     // save the pledge
     save_pledge(deps.storage, &pledge.id.as_bytes(), &pledge)?;
+
+    // TODO: using metdata module, we need to lookup the assets by id and change the value owner
 
     // messages to include in transaction
     let messages = vec![
@@ -232,7 +265,7 @@ fn propose_pledge(
 
 fn accept_pledge(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     contract_info: ContractInfo,
     id: String,
@@ -245,6 +278,20 @@ fn accept_pledge(
         return Err(ContractError::StateError {
             error: "Unable to accept pledge: Pledge is not in the 'proposed' state.".into(),
         });
+    }
+
+    // ensure the contract has privs on the escrow marker
+    let querier = ProvenanceQuerier::new(&deps.querier);
+    let escrow_marker =
+        querier.get_marker_by_address(contract_info.facility.escrow_marker.clone())?;
+    if !marker_has_grant(
+        escrow_marker.clone(),
+        AccessGrant {
+            address: env.contract.address,
+            permissions: vec![MarkerAccess::Transfer, MarkerAccess::Withdraw],
+        },
+    ) {
+        return Err(ContractError::MissingEscrowMarkerGrant {});
     }
 
     // make sure that the warehouse sent the appropriate stablecoin
@@ -263,13 +310,26 @@ fn accept_pledge(
         });
     }
 
+    // messages to include in transaction
+    let messages = vec![
+        // forward stablecoin to escrow marker account
+        BankMsg::Send {
+            to_address: escrow_marker.address.to_string(),
+            amount: coins(
+                pledge.total_advance.into(),
+                contract_info.facility.stablecoin_denom,
+            ),
+        }
+        .into(),
+    ];
+
     // update the pledge
     pledge.state = PledgeState::Accepted;
     save_pledge(deps.storage, &pledge.id.as_bytes(), &pledge)?;
 
     Ok(Response {
         submessages: vec![],
-        messages: vec![],
+        messages,
         attributes: vec![attr("action", "accept_pledge")],
         data: Some(to_binary(&pledge)?),
     })
@@ -277,7 +337,7 @@ fn accept_pledge(
 
 fn cancel_pledge(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     _info: MessageInfo,
     contract_info: ContractInfo,
     id: String,
@@ -302,26 +362,36 @@ fn cancel_pledge(
         }
     }
 
+    // ensure the contract has privs on the escrow marker
+    let querier = ProvenanceQuerier::new(&deps.querier);
+    let escrow_marker =
+        querier.get_marker_by_address(contract_info.facility.escrow_marker.clone())?;
+    if !marker_has_grant(
+        escrow_marker.clone(),
+        AccessGrant {
+            address: env.contract.address,
+            permissions: vec![MarkerAccess::Transfer, MarkerAccess::Withdraw],
+        },
+    ) {
+        return Err(ContractError::MissingEscrowMarkerGrant {});
+    }
+
     // messages to include in transaction
     let mut messages = Vec::new();
 
     // remove the advance from escrow back to the warehouse account
     if remove_advance_from_escrow {
-        messages.push(
-            BankMsg::Send {
-                to_address: contract_info.facility.warehouse.to_string(),
-                amount: coins(
-                    pledge.total_advance.into(),
-                    contract_info.facility.stablecoin_denom,
-                ),
-            }
-            .into(),
-        );
+        // withdraw advance funds from the escrow marker account to the warehouse
+        messages.push(withdraw_coins(
+            escrow_marker.denom,
+            pledge.total_advance.into(),
+            contract_info.facility.stablecoin_denom.clone(),
+            contract_info.facility.warehouse,
+        )?);
     }
 
     // remove the assets (asset marker) from escrow
     if remove_assets_from_escrow {
-        let querier = ProvenanceQuerier::new(&deps.querier);
         let asset_marker = querier.get_marker_by_denom(pledge.asset_marker_denom.clone())?;
 
         // transfer the asset marker back to the marker supply
@@ -353,7 +423,7 @@ fn cancel_pledge(
 
 fn execute_pledge(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     _info: MessageInfo,
     contract_info: ContractInfo,
     id: String,
@@ -368,32 +438,30 @@ fn execute_pledge(
         });
     }
 
+    // ensure the contract has privs on the escrow marker
+    let querier = ProvenanceQuerier::new(&deps.querier);
+    let escrow_marker =
+        querier.get_marker_by_address(contract_info.facility.escrow_marker.clone())?;
+    if !marker_has_grant(
+        escrow_marker.clone(),
+        AccessGrant {
+            address: env.contract.address,
+            permissions: vec![MarkerAccess::Transfer, MarkerAccess::Withdraw],
+        },
+    ) {
+        return Err(ContractError::MissingEscrowMarkerGrant {});
+    }
+
     // messages to include in transaction
     let messages = vec![
-        // transfer stablecoin from escrow to the originator
-        BankMsg::Send {
-            to_address: contract_info.facility.originator.to_string(),
-            amount: coins(
-                pledge.total_advance.into(),
-                contract_info.facility.stablecoin_denom,
-            ),
-        }
-        .into(),
+        // withdraw advance funds from the escrow marker account to the originator
+        withdraw_coins(
+            escrow_marker.denom,
+            pledge.total_advance.into(),
+            contract_info.facility.stablecoin_denom.clone(),
+            contract_info.facility.originator,
+        )?,
     ];
-
-    /*
-    // transfer stablecoin from escrow to the originator
-    messages.push(
-        BankMsg::Send {
-            to_address: contract_info.facility.originator.to_string(),
-            amount: coins(
-                pledge.total_advance.into(),
-                contract_info.facility.stablecoin_denom,
-            ),
-        }
-        .into(),
-    );
-    */
 
     // update the pledge
     pledge.state = PledgeState::Executed;

@@ -11,6 +11,9 @@ pub struct Facility {
     // The address of the warehouse provider.
     pub warehouse: Addr,
 
+    // The address of the escrow marker.
+    pub escrow_marker: Addr,
+
     // The new marker denom to create representing fractional
     // ownership of assets in this facility.
     pub marker_denom: String,

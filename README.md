@@ -37,23 +37,59 @@ An asset pool marker is a marker that represents ownership and encumberance of a
 
 A facility marker is a marker that represents fractional ownership of the pool of assets currently encumbered in a warehouse facility. The facility marker is created and credited to the orginator and warehouse accounts when the facility is instantiated, based on the advance rate set in the facility terms.
 
+### Escrow Marker
+
+An escrow marker is required for the facility to store escrowed advance funds from the warehouse once the pledge proposal has been accepted, but prior to actually executing the pledge. The escrow marker **MUST** be a legitimate account, and the facility contract instance **MUST** have privileges to `TRANSFER` and `WITHDRAW` from the marker. Therefore, the escrow marker should have at least one marker coin in the supply, withdrawn to the contract instance address, and have access granted. For example: 
+
+```
+marker:
+  '@type': /provenance.marker.v1.MarkerAccount
+  access_control:
+  - address: tp18vd8fpwxzck93qlwghaj6arh4p7c5n89x8kskz (<<--- CONTRACT ADDRESS)
+    permissions:
+    - ACCESS_WITHDRAW
+    - ACCESS_TRANSFER
+  allow_governance_control: true
+  base_account:
+    account_number: "16"
+    address: tp1nzrtkpw5x3awtqp79380fm7dlqcgnqpjkygl3z
+    pub_key: null
+    sequence: "0"
+  denom: pb.fse.1
+  manager: ""
+  marker_type: MARKER_TYPE_RESTRICTED
+  status: MARKER_STATUS_ACTIVE
+  supply: "1"
+  supply_fixed: false
+```
+
 ## Summary
 
 ### Instantiate
 
-By instantiating the smart contract, a new facility is created representing an agreement between the originator and the warehouse.
+By instantiating the smart contract, a new facility is created representing an agreement between the originator and the warehouse. The following arguments are required when instantiating a warehouse facility:
+
+| Argument        | Description                                                                      |
+| --------------- | -------------------------------------------------------------------------------- |
+| `bind_name`     | The name to bind this instance of the contract to on Provenance. Must be unique. |
+| `contract_name` | The contract name.                                                               |
+| `facility`      | The details of this facility.                                                    |
+
+**Example**
 
 ```json
 {
-    "bind_name": "warehouse-facility.sc.pb",
-    "contract_name": "warehouse_facility",
-    "facility": {
-        "originator": "<Originator Account Address>",
-        "warehouse": "<Warehouse Account Address>",
-        "marker_denom": "<Facility Marker Denom>",
-        "stablecoin_denom": "<Stablecoin Denom>",
-        "advance_rate": "<Advance Rate>"
-    }
+  "bind_name": "warehouse-facility.sc.pb",
+  "contract_name": "warehouse_facility",
+  "facility": {
+    "marker_denom": "pb.fm.1",
+    "stablecoin_denom": "omni.usd",
+    "advance_rate": "75.125",
+    "paydown_rate": "102.25",
+    "originator": "tp147na50n7pl2crxn336z5ytsfp6a8nmvk46mddx",
+    "warehouse": "tp154w9gfjmkntgek9wwwd4v32p0u3c37er74u674",
+    "escrow_marker": "tp1nzrtkpw5x3awtqp79380fm7dlqcgnqpjkygl3z"
+  }
 }
 ```
 

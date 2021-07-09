@@ -48,6 +48,21 @@ impl Validate for InstantiateMsg {
             invalid_fields.push("contract_name");
         }
 
+        // validate the facility originator address
+        if self.facility.originator.as_str().is_empty() {
+            invalid_fields.push("facility.originator");
+        }
+
+        // validate the facility warehouse address
+        if self.facility.warehouse.as_str().is_empty() {
+            invalid_fields.push("facility.warehouse");
+        }
+
+        // validate the facility escrow marker address
+        if self.facility.escrow_marker.as_str().is_empty() {
+            invalid_fields.push("facility.escrow_marker");
+        }
+
         // validate the facility marker denom
         if self.facility.marker_denom.is_empty() {
             invalid_fields.push("facility.marker_denom");

@@ -18,6 +18,9 @@ pub enum ContractError {
     #[error("Pledge already exists: {id:?}")]
     PledgeAlreadyExists { id: String },
 
+    #[error("Facility contract missing grants on escrow marker")]
+    MissingEscrowMarkerGrant {},
+
     #[error("Cannot accept pledge: Missing pledge advance")]
     MissingPledgeAdvance {},
 

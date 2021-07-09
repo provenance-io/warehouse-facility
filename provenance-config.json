@@ -1,7 +1,7 @@
 {
     "contractLabel": "warehouse-facility",
     "build": {
-        "target": "all"
+        "target": "develop"
     },
     "binding": {
         "name": "sc",
@@ -14,6 +14,7 @@
         "facility": {
             "originator": "${provenance::getAddressForKey('originator')}",
             "warehouse": "${provenance::getAddressForKey('warehouse')}",
+            "escrow_marker": "${provenance::getMarkerAddress('pb.fse.1')}",
             "marker_denom": "pb.fm.1",
             "stablecoin_denom": "omni.usd",
             "advance_rate": "75.125",
@@ -22,24 +23,66 @@
     },
     "env": {
         "keys": [
-            "omnibus",
-            "portfolio_manager",
-            "originator",
-            "warehouse"
+            {
+                "name": "omnibus",
+                "minHash": 100000,
+                "initialHash": 100000000
+            },
+            {
+                "name": "portfolio_manager",
+                "minHash": 100000,
+                "initialHash": 100000000
+            },
+            {
+                "name": "originator",
+                "minHash": 100000,
+                "initialHash": 100000000
+            },
+            {
+                "name": "warehouse",
+                "minHash": 100000,
+                "initialHash": 100000000
+            }
         ],
         "markers": [
             {
                 "denom": "omni.usd",
                 "supply": 10000000000,
                 "manager": "omnibus",
-                "privs": [
-                    "admin",
-                    "burn",
-                    "deposit",
-                    "delete",
-                    "mint",
-                    "transfer",
-                    "withdraw"
+                "type": "coin",
+                "grants": [
+                    {
+                        "key": "omnibus",
+                        "privs": [
+                            "admin",
+                            "burn",
+                            "deposit",
+                            "delete",
+                            "mint",
+                            "transfer",
+                            "withdraw"
+                        ]
+                    }
+                ]
+            },
+            {
+                "denom": "pb.fse.1",
+                "supply": 1,
+                "manager": "portfolio_manager",
+                "type": "restricted",
+                "grants": [
+                    {
+                        "key": "portfolio_manager",
+                        "privs": [
+                            "admin",
+                            "burn",
+                            "deposit",
+                            "delete",
+                            "mint",
+                            "transfer",
+                            "withdraw"
+                        ]
+                    }
                 ]
             }
         ]
