@@ -110,8 +110,6 @@ pub enum ExecuteMsg {
         assets: Vec<String>,
 
         // The total requested advance for the pledged assets.
-        // Must match (within tolerance) the sum of the asset value
-        // times the advance rate of the facility.
         total_advance: u64,
 
         // The marker denom to create representing the encumbered
@@ -121,16 +119,49 @@ pub enum ExecuteMsg {
 
     // Accept a proposal to pledge assets to the warehouse facility (warehouse)
     AcceptPledge {
+        // The unique identifier of the pledge.
         id: String,
     },
 
     // Cancel a proposal to pledge assets to the warehouse facility (originator)
     CancelPledge {
+        // The unique identifier of the pledge.
         id: String,
     },
 
-    // Executes a proposal to pledge assets to the warehouse facility (???)
+    // Executes a proposal to pledge assets to the warehouse facility (originator)
     ExecutePledge {
+        // The unique identifier of the pledge.
+        id: String,
+    },
+
+    // Propose a paydown of a pledge to the warehouse facility (originator)
+    ProposePaydown {
+        // The unique identifier of the paydown.
+        id: String,
+
+        // A list of assets to include in the pledge.
+        assets: Vec<String>,
+
+        // The total proposed paydown for the pledged assets.
+        total_paydown: u64,
+    },
+
+    // Accept a proposal to paydown assets in the warehouse facility (warehouse)
+    AcceptPaydown {
+        // The unique identifier of the paydown.
+        id: String,
+    },
+
+    // Cancel a proposal to paydown assets in the warehouse facility (originator)
+    CancelPaydown {
+        // The unique identifier of the paydown.
+        id: String,
+    },
+
+    // Executes a proposal to paydown assets int the warehouse facility (originator)
+    ExecutePaydown {
+        // The unique identifier of the paydown.
         id: String,
     },
 }
@@ -198,6 +229,48 @@ impl Validate for ExecuteMsg {
                     invalid_fields.push("id");
                 }
             }
+
+            ExecuteMsg::ProposePaydown {
+                id,
+                assets,
+                total_paydown: _,
+            } => {
+                // validate the paydown id
+                if Uuid::parse_str(id).is_err() {
+                    invalid_fields.push("id");
+                }
+
+                // validate the assets
+                if assets.is_empty() {
+                    invalid_fields.push("assets");
+                }
+                for asset in assets {
+                    if Uuid::parse_str(&asset).is_err() {
+                        invalid_fields.push("asset");
+                    }
+                }
+            }
+
+            ExecuteMsg::AcceptPaydown { id } => {
+                // validate the paydown id
+                if Uuid::parse_str(id).is_err() {
+                    invalid_fields.push("id");
+                }
+            }
+
+            ExecuteMsg::CancelPaydown { id } => {
+                // validate the paydown id
+                if Uuid::parse_str(id).is_err() {
+                    invalid_fields.push("id");
+                }
+            }
+
+            ExecuteMsg::ExecutePaydown { id } => {
+                // validate the paydown id
+                if Uuid::parse_str(id).is_err() {
+                    invalid_fields.push("id");
+                }
+            }
         }
 
         match invalid_fields.len() {
@@ -246,6 +319,38 @@ impl Authorize for ExecuteMsg {
                     authorized = false;
                 }
             }
+
+            ExecuteMsg::ProposePaydown {
+                id: _,
+                assets: _,
+                total_paydown: _,
+            } => {
+                // only the originator in this facility can propose a paydown
+                if contract_info.facility.originator != sender {
+                    authorized = false;
+                }
+            }
+
+            ExecuteMsg::AcceptPaydown { id: _ } => {
+                // only the warehouse in this facility can accept a paydown
+                if contract_info.facility.warehouse != sender {
+                    authorized = false;
+                }
+            }
+
+            ExecuteMsg::CancelPaydown { id: _ } => {
+                // only the originator in this facility can cancel a paydown
+                if contract_info.facility.originator != sender {
+                    authorized = false;
+                }
+            }
+
+            ExecuteMsg::ExecutePaydown { id: _ } => {
+                // only the originator in this facility can execute a paydown
+                if contract_info.facility.originator != sender {
+                    authorized = false;
+                }
+            }
         }
 
         match authorized {
@@ -272,6 +377,28 @@ pub enum QueryMsg {
 
     // List info about all pledges in the facility.
     ListPledges {},
+
+    // List info about all open pledge proposals in the facility.
+    ListPledgeProposals {},
+
+    // List the ids of all paydowns in the facility.
+    ListPaydownIds {},
+
+    // List info about all paydowns in the facility.
+    ListPaydowns {},
+
+    // List info about all open paydown proposals in the facility.
+    ListPaydownProposals {},
+
+    // Get info about a paydown in the facility.
+    GetPaydown { id: String },
+
+    // List the assets currently involved in the facility (whether
+    // proposed for pledge/paydown or currently in the inventory).
+    ListAssets {},
+
+    // List the assets currently in the facility inventory.
+    ListInventory {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

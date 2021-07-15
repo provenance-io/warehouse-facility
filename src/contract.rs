@@ -2,8 +2,12 @@ use crate::contract_info::{get_contract_info, set_contract_info, ContractInfo};
 use crate::error::ContractError;
 use crate::msg::{Authorize, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, Validate};
 use crate::state::{
-    get_pledge_ids, get_pledges, load_pledge, save_pledge, Facility, Pledge, PledgeState,
+    find_pledge_ids_with_assets, get_asset_ids, get_asset_ids_by_filter, get_assets,
+    get_paydown_ids, get_paydowns, get_pledge_ids, get_pledges, load_paydown, load_pledge,
+    remove_assets, save_paydown, save_pledge, set_assets_state, Asset, AssetState, Facility,
+    Paydown, PaydownState, Pledge, PledgeState,
 };
+use crate::utils::{vec_contains, vec_has_any};
 use cosmwasm_std::{
     attr, coins, entry_point, to_binary, Addr, BankMsg, Binary, Deps, DepsMut, Env, MessageInfo,
     Response, StdResult, Storage,
@@ -19,11 +23,6 @@ use std::ops::{Div, Mul};
 
 pub const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-fn vec_contains<T: PartialEq>(a: &[T], b: &[T]) -> bool {
-    let matching = a.iter().filter(|&ae| b.iter().any(|be| be == ae)).count();
-    matching == b.len()
-}
-
 fn marker_has_grant(marker: Marker, grant: AccessGrant) -> bool {
     let access = marker
         .permissions
@@ -36,6 +35,26 @@ fn marker_has_grant(marker: Marker, grant: AccessGrant) -> bool {
     }
 
     has_grant
+}
+
+// check if all of the specified assets are in the inventory with the optionally specified state (None = any state).
+fn assets_in_inventory(
+    storage: &dyn Storage,
+    state: Option<AssetState>,
+    assets: &[String],
+) -> bool {
+    let inventory_assets = get_asset_ids(storage, state, None, None).unwrap();
+    vec_contains(&inventory_assets, &assets)
+}
+
+// check if any of the specified assets are in the inventory with the optionally specified state (None = any state).
+fn any_assets_in_inventory(
+    storage: &dyn Storage,
+    state: Option<AssetState>,
+    assets: &[String],
+) -> bool {
+    let inventory_assets = get_asset_ids(storage, state, None, None).unwrap();
+    vec_has_any(&inventory_assets, &assets)
 }
 
 // smart contract initialization entrypoint
@@ -176,6 +195,14 @@ pub fn execute(
         ExecuteMsg::AcceptPledge { id } => accept_pledge(deps, env, info, contract_info, id),
         ExecuteMsg::CancelPledge { id } => cancel_pledge(deps, env, info, contract_info, id),
         ExecuteMsg::ExecutePledge { id } => execute_pledge(deps, env, info, contract_info, id),
+        ExecuteMsg::ProposePaydown {
+            id,
+            assets,
+            total_paydown,
+        } => propose_paydown(deps, env, info, contract_info, id, assets, total_paydown),
+        ExecuteMsg::AcceptPaydown { id } => accept_paydown(deps, env, info, contract_info, id),
+        ExecuteMsg::CancelPaydown { id } => cancel_paydown(deps, env, info, contract_info, id),
+        ExecuteMsg::ExecutePaydown { id } => execute_paydown(deps, env, info, contract_info, id),
     }
 }
 
@@ -194,6 +221,11 @@ fn propose_pledge(
     let pledge = load_pledge(deps.storage, id.as_bytes());
     if let Ok(v) = pledge {
         return Err(ContractError::PledgeAlreadyExists { id: v.id });
+    }
+
+    // ensure that the assets are not in the inventory
+    if any_assets_in_inventory(deps.storage, None, &assets) {
+        return Err(ContractError::AssetsAlreadyPledged {});
     }
 
     // ensure the contract has privs on the escrow marker
@@ -222,7 +254,10 @@ fn propose_pledge(
     // save the pledge
     save_pledge(deps.storage, &pledge.id.as_bytes(), &pledge)?;
 
-    // TODO: using metdata module, we need to lookup the assets by id and change the value owner
+    // update the asset(s) state in the facility inventory
+    set_assets_state(deps.storage, AssetState::PledgeProposed, &pledge.assets)?;
+
+    // TODO: using metadata module, we need to lookup the assets by id and change the value owner
 
     // messages to include in transaction
     let messages = vec![
@@ -413,6 +448,9 @@ fn cancel_pledge(
     pledge.state = PledgeState::Cancelled;
     save_pledge(deps.storage, &pledge.id.as_bytes(), &pledge)?;
 
+    // remove the assets from the inventory
+    remove_assets(deps.storage, &pledge.assets)?;
+
     Ok(Response {
         submessages: vec![],
         messages,
@@ -467,10 +505,318 @@ fn execute_pledge(
     pledge.state = PledgeState::Executed;
     save_pledge(deps.storage, &pledge.id.as_bytes(), &pledge)?;
 
+    // update the asset(s) state in the facility inventory
+    set_assets_state(deps.storage, AssetState::Inventory, &pledge.assets)?;
+
     Ok(Response {
         submessages: vec![],
         messages,
         attributes: vec![attr("action", "execute_pledge")],
+        data: None,
+    })
+}
+
+fn propose_paydown(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    contract_info: ContractInfo,
+    id: String,
+    assets: Vec<String>,
+    total_paydown: u64,
+) -> Result<Response<ProvenanceMsg>, ContractError> {
+    // ensure that a paydown with the specified id doesn't already exist
+    let paydown = load_paydown(deps.storage, id.as_bytes());
+    if let Ok(v) = paydown {
+        return Err(ContractError::PaydownAlreadyExists { id: v.id });
+    }
+
+    // ensure that the included assets are in the inventory
+    if !assets_in_inventory(deps.storage, Some(AssetState::Inventory), &assets) {
+        return Err(ContractError::AssetsNotInInventory {});
+    }
+
+    // ensure the contract has privs on the escrow marker
+    let querier = ProvenanceQuerier::new(&deps.querier);
+    let escrow_marker =
+        querier.get_marker_by_address(contract_info.facility.escrow_marker.clone())?;
+    if !marker_has_grant(
+        escrow_marker.clone(),
+        AccessGrant {
+            address: env.contract.address,
+            permissions: vec![MarkerAccess::Transfer, MarkerAccess::Withdraw],
+        },
+    ) {
+        return Err(ContractError::MissingEscrowMarkerGrant {});
+    }
+
+    // create the paydown
+    let paydown = Paydown {
+        id,
+        assets,
+        total_paydown,
+        state: PaydownState::Proposed,
+    };
+
+    // make sure that the originator sent the appropriate stablecoin
+    let paydown_funds = info.funds.get(0).ok_or(ContractError::MissingPaydown {})?;
+    if (paydown_funds.denom != contract_info.facility.stablecoin_denom)
+        || (paydown_funds.amount != paydown.total_paydown.into())
+    {
+        return Err(ContractError::InsufficientPaydown {
+            need: paydown.total_paydown.to_u128().unwrap(),
+            need_denom: contract_info.facility.stablecoin_denom,
+            received: paydown_funds.amount.u128(),
+            received_denom: paydown_funds.denom.clone(),
+        });
+    }
+
+    // messages to include in transaction
+    let messages = vec![
+        // forward stablecoin to escrow marker account
+        BankMsg::Send {
+            to_address: escrow_marker.address.to_string(),
+            amount: coins(
+                paydown.total_paydown.into(),
+                contract_info.facility.stablecoin_denom,
+            ),
+        }
+        .into(),
+    ];
+
+    // save the paydown
+    save_paydown(deps.storage, &paydown.id.as_bytes(), &paydown)?;
+
+    // update the asset(s) state in the facility inventory
+    set_assets_state(deps.storage, AssetState::PaydownProposed, &paydown.assets)?;
+
+    // get the pledges affected by this paydown
+    let affected_pledges = find_pledge_ids_with_assets(
+        deps.storage,
+        paydown.assets,
+        Some(PledgeState::Executed),
+        None,
+        None,
+    )?;
+
+    // TODO: Anything else to do at this state? How do we handle the asset marker(s) (assets being payed down
+    //       can come from multiple pledges). CoNfUsEd!
+
+    Ok(Response {
+        submessages: vec![],
+        messages,
+        attributes: vec![
+            attr("action", "propose_paydown"),
+            attr("affected_pledges", affected_pledges.join(",")),
+        ],
+        data: None,
+    })
+}
+
+fn accept_paydown(
+    deps: DepsMut,
+    _env: Env,
+    _info: MessageInfo,
+    _contract_info: ContractInfo,
+    id: String,
+) -> Result<Response<ProvenanceMsg>, ContractError> {
+    // locate the paydown
+    let mut paydown = load_paydown(deps.storage, id.as_bytes())?;
+
+    // only paydowns that are in the "PROPOSED" state can be accepted
+    if paydown.state != PaydownState::Proposed {
+        return Err(ContractError::StateError {
+            error: "Unable to accept paydown: Paydown is not in the 'proposed' state.".into(),
+        });
+    }
+
+    // TODO
+
+    // update the paydown
+    paydown.state = PaydownState::Accepted;
+    save_paydown(deps.storage, &paydown.id.as_bytes(), &paydown)?;
+
+    Ok(Response {
+        submessages: vec![],
+        messages: vec![],
+        attributes: vec![attr("action", "accept_paydown")],
+        data: Some(to_binary(&paydown)?),
+    })
+}
+
+fn cancel_paydown(
+    deps: DepsMut,
+    env: Env,
+    _info: MessageInfo,
+    contract_info: ContractInfo,
+    id: String,
+) -> Result<Response<ProvenanceMsg>, ContractError> {
+    // locate the paydown
+    let mut paydown = load_paydown(deps.storage, id.as_bytes())?;
+
+    // only paydowns that are in the "PROPOSED" or "ACCEPTED" states can be cancelled=
+    match paydown.state {
+        PaydownState::Proposed => {}
+        PaydownState::Accepted => {}
+        _ => return Err(ContractError::StateError {
+            error:
+                "Unable to cancel paydown: Paydown is not in the 'proposed' or 'accepted' state."
+                    .into(),
+        }),
+    }
+
+    // ensure the contract has privs on the escrow marker
+    let querier = ProvenanceQuerier::new(&deps.querier);
+    let escrow_marker =
+        querier.get_marker_by_address(contract_info.facility.escrow_marker.clone())?;
+    if !marker_has_grant(
+        escrow_marker.clone(),
+        AccessGrant {
+            address: env.contract.address,
+            permissions: vec![MarkerAccess::Transfer, MarkerAccess::Withdraw],
+        },
+    ) {
+        return Err(ContractError::MissingEscrowMarkerGrant {});
+    }
+
+    // messages to include in transaction
+    let messages = vec![
+        // withdraw paydown funds from the escrow marker account to the originator
+        withdraw_coins(
+            escrow_marker.denom,
+            paydown.total_paydown.into(),
+            contract_info.facility.stablecoin_denom.clone(),
+            contract_info.facility.originator,
+        )?,
+    ];
+
+    // TODO: Anything else to do at this state (undo proposal)?
+
+    // update the paydown
+    paydown.state = PaydownState::Cancelled;
+    save_paydown(deps.storage, &paydown.id.as_bytes(), &paydown)?;
+
+    // update the asset(s) state in the facility inventory
+    set_assets_state(deps.storage, AssetState::Inventory, &paydown.assets)?;
+
+    Ok(Response {
+        submessages: vec![],
+        messages,
+        attributes: vec![attr("action", "cancel_paydown")],
+        data: Some(to_binary(&paydown)?),
+    })
+}
+
+fn execute_paydown(
+    deps: DepsMut,
+    env: Env,
+    _info: MessageInfo,
+    contract_info: ContractInfo,
+    id: String,
+) -> Result<Response<ProvenanceMsg>, ContractError> {
+    // locate the paydown
+    let mut paydown = load_paydown(deps.storage, id.as_bytes())?;
+
+    // only paydowns that are in the "ACCEPTED" state can be executed
+    if paydown.state != PaydownState::Accepted {
+        return Err(ContractError::StateError {
+            error: "Unable to execute paydown: Paydown is not in the 'accepted' state.".into(),
+        });
+    }
+
+    // ensure the contract has privs on the escrow marker
+    let querier = ProvenanceQuerier::new(&deps.querier);
+    let escrow_marker =
+        querier.get_marker_by_address(contract_info.facility.escrow_marker.clone())?;
+    if !marker_has_grant(
+        escrow_marker.clone(),
+        AccessGrant {
+            address: env.contract.address,
+            permissions: vec![MarkerAccess::Transfer, MarkerAccess::Withdraw],
+        },
+    ) {
+        return Err(ContractError::MissingEscrowMarkerGrant {});
+    }
+
+    // messages to include in transaction
+    let mut messages = vec![
+        // withdraw advance funds from the escrow marker account to the warehouse
+        withdraw_coins(
+            escrow_marker.denom,
+            paydown.total_paydown.into(),
+            contract_info.facility.stablecoin_denom.clone(),
+            contract_info.facility.warehouse,
+        )?,
+    ];
+
+    // TODO: value ownership change for asset markers. Waiting on metadata module.
+
+    // update the paydown
+    paydown.state = PaydownState::Executed;
+    save_paydown(deps.storage, &paydown.id.as_bytes(), &paydown)?;
+
+    // remove the assets from the facility inventory
+    remove_assets(deps.storage, &paydown.assets)?;
+
+    // get the current inventory
+    let inventory = list_inventory(deps.storage)?;
+
+    // get the pledges affected by this paydown
+    let affected_pledges = find_pledge_ids_with_assets(
+        deps.storage,
+        paydown.assets,
+        Some(PledgeState::Executed),
+        None,
+        None,
+    )?;
+
+    // get the pledges that are closed by this paydown
+    let closed_pledges: Vec<String> = affected_pledges
+        .iter()
+        .filter(|id| {
+            !vec_has_any(
+                &inventory,
+                &load_pledge(deps.storage, id.as_bytes()).unwrap().assets,
+            )
+        })
+        .map(String::from)
+        .collect();
+
+    // update the state on the closed pledges
+    for pledge_id in &closed_pledges {
+        // load the pledge
+        let mut pledge = get_pledge(deps.storage, String::from(pledge_id))?;
+
+        // get the asset marker for the pledge
+        let asset_marker = querier.get_marker_by_denom(pledge.asset_marker_denom.clone())?;
+
+        // update the pledge
+        pledge.state = PledgeState::Closed;
+        save_pledge(deps.storage, &pledge.id.as_bytes(), &pledge)?;
+
+        // transfer the asset marker back to the marker supply
+        messages.push(transfer_marker_coins(
+            1,
+            pledge.asset_marker_denom.clone(),
+            asset_marker.address,
+            contract_info.facility.originator.clone(),
+        )?);
+
+        // cancel the asset marker
+        messages.push(cancel_marker(pledge.asset_marker_denom.clone())?);
+
+        // destroy the asset marker
+        messages.push(destroy_marker(pledge.asset_marker_denom.clone())?);
+    }
+
+    Ok(Response {
+        submessages: vec![],
+        messages,
+        attributes: vec![
+            attr("action", "execute_paydown"),
+            attr("affected_pledges", affected_pledges.join(",")),
+            attr("closed_pledges", closed_pledges.join(",")),
+        ],
         data: None,
     })
 }
@@ -485,11 +831,47 @@ fn get_pledge(store: &dyn Storage, id: String) -> StdResult<Pledge> {
 }
 
 fn list_pledge_ids(store: &dyn Storage) -> StdResult<Vec<String>> {
-    get_pledge_ids(store, None, None)
+    get_pledge_ids(store, None, None, None)
 }
 
 fn list_pledges(store: &dyn Storage) -> StdResult<Vec<Pledge>> {
-    get_pledges(store, None, None)
+    get_pledges(store, None, None, None)
+}
+
+fn list_pledge_proposals(store: &dyn Storage) -> StdResult<Vec<Pledge>> {
+    get_pledges(store, Some(PledgeState::Proposed), None, None)
+}
+
+fn list_paydown_ids(store: &dyn Storage) -> StdResult<Vec<String>> {
+    get_paydown_ids(store, None, None, None)
+}
+
+fn list_paydowns(store: &dyn Storage) -> StdResult<Vec<Paydown>> {
+    get_paydowns(store, None, None, None)
+}
+
+fn list_paydown_proposals(store: &dyn Storage) -> StdResult<Vec<Paydown>> {
+    get_paydowns(store, Some(PaydownState::Proposed), None, None)
+}
+
+fn get_paydown(store: &dyn Storage, id: String) -> StdResult<Paydown> {
+    load_paydown(store, id.as_bytes())
+}
+
+fn list_assets(store: &dyn Storage) -> StdResult<Vec<Asset>> {
+    get_assets(store, None, None, None)
+}
+
+// Get a list of the assets ids in the inventory.
+// NOTE: An asset proposed for paydown is still technically in the inventory, so we include
+// them in the filter.
+fn list_inventory(store: &dyn Storage) -> StdResult<Vec<String>> {
+    get_asset_ids_by_filter(
+        store,
+        vec![AssetState::Inventory, AssetState::PaydownProposed],
+        None,
+        None,
+    )
 }
 
 // smart contract query entrypoint
@@ -498,9 +880,16 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::GetContractInfo {} => to_binary(&get_contract_info(deps.storage)?),
         QueryMsg::GetFacilityInfo {} => to_binary(&get_facility_info(deps.storage)?),
+        QueryMsg::GetPaydown { id } => to_binary(&get_paydown(deps.storage, id)?),
         QueryMsg::GetPledge { id } => to_binary(&get_pledge(deps.storage, id)?),
+        QueryMsg::ListAssets {} => to_binary(&list_assets(deps.storage)?),
+        QueryMsg::ListInventory {} => to_binary(&list_inventory(deps.storage)?),
         QueryMsg::ListPledgeIds {} => to_binary(&list_pledge_ids(deps.storage)?),
+        QueryMsg::ListPledgeProposals {} => to_binary(&list_pledge_proposals(deps.storage)?),
         QueryMsg::ListPledges {} => to_binary(&list_pledges(deps.storage)?),
+        QueryMsg::ListPaydownIds {} => to_binary(&list_paydown_ids(deps.storage)?),
+        QueryMsg::ListPaydownProposals {} => to_binary(&list_paydown_proposals(deps.storage)?),
+        QueryMsg::ListPaydowns {} => to_binary(&list_paydowns(deps.storage)?),
     }
 }
 

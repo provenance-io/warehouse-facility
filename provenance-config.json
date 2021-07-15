@@ -18,7 +18,7 @@
             "marker_denom": "pb.fm.1",
             "stablecoin_denom": "omni.usd",
             "advance_rate": "75.125",
-            "paydown_rate": "102.25"
+            "paydown_rate": "76.75"
         }
     },
     "env": {

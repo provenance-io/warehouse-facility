@@ -18,10 +18,15 @@ pub enum ContractError {
     #[error("Pledge already exists: {id:?}")]
     PledgeAlreadyExists { id: String },
 
+    #[error(
+        "Cannot propose pledge: One or more assets has already been pledged or is in the inventory"
+    )]
+    AssetsAlreadyPledged {},
+
     #[error("Facility contract missing grants on escrow marker")]
     MissingEscrowMarkerGrant {},
 
-    #[error("Cannot accept pledge: Missing pledge advance")]
+    #[error("Cannot accept pledge: Missing pledge advance funds")]
     MissingPledgeAdvance {},
 
     #[error("Cannot accept pledge: Insufficient funds: need {need:?} {need_denom:?}, received {received:?} {received_denom:?}")]
@@ -31,6 +36,23 @@ pub enum ContractError {
         received: u128,
         received_denom: String,
     },
+
+    #[error("Cannot propose paydown: Missing paydown funds")]
+    MissingPaydown {},
+
+    #[error("Cannot propose paydown: Insufficient funds: need {need:?} {need_denom:?}, received {received:?} {received_denom:?}")]
+    InsufficientPaydown {
+        need: u128,
+        need_denom: String,
+        received: u128,
+        received_denom: String,
+    },
+
+    #[error("Paydown already exists: {id:?}")]
+    PaydownAlreadyExists { id: String },
+
+    #[error("Cannot propose paydown: Assets not in inventory")]
+    AssetsNotInInventory {},
 }
 
 impl From<ContractError> for StdError {

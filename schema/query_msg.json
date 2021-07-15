@@ -69,6 +69,98 @@
         }
       },
       "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "list_pledge_proposals"
+      ],
+      "properties": {
+        "list_pledge_proposals": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "list_paydown_ids"
+      ],
+      "properties": {
+        "list_paydown_ids": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "list_paydowns"
+      ],
+      "properties": {
+        "list_paydowns": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "list_paydown_proposals"
+      ],
+      "properties": {
+        "list_paydown_proposals": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "get_paydown"
+      ],
+      "properties": {
+        "get_paydown": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "list_assets"
+      ],
+      "properties": {
+        "list_assets": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "list_inventory"
+      ],
+      "properties": {
+        "list_inventory": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
     }
   ]
 }
