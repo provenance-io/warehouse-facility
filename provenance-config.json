@@ -1,7 +1,7 @@
 {
     "contractLabel": "warehouse-facility",
     "build": {
-        "target": "all"
+        "target": "develop"
     },
     "binding": {
         "name": "sc",
