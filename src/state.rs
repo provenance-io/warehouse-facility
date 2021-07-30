@@ -272,11 +272,43 @@ pub enum PaydownState {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PaydownKind {
+    // The originator is paying down the assets only.
+    PaydownOnly,
+
+    // The originator is paying down and selling the assets.
+    PaydownAndSell,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ContractParty {
+    // The originator party.
+    Originator,
+
+    // The warehouse party.
+    Warehouse,
+
+    // The buyer party.
+    Buyer,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct PaydownSaleInfo {
+    pub buyer: Addr,
+    pub price: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Paydown {
     pub id: String,
     pub assets: Vec<String>,
     pub total_paydown: u64,
+    pub kind: PaydownKind,
     pub state: PaydownState,
+    pub parties_accepted: Vec<ContractParty>,
+    pub sale_info: Option<PaydownSaleInfo>,
 }
 
 pub const NAMESPACE_PAYDOWNS: &str = "paydowns";

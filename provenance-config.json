@@ -42,6 +42,11 @@
                 "name": "warehouse",
                 "minHash": 100000,
                 "initialHash": 100000000
+            },
+            {
+                "name": "buyer",
+                "minHash": 100000,
+                "initialHash": 100000000
             }
         ],
         "markers": [

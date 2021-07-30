@@ -1,0 +1,10 @@
+{
+    "provenance": {
+        "version": "1.4.0",
+        "genesis": {
+        }
+    },
+    "workspace": {
+        "name": "warehouse-facility"
+    }
+}
