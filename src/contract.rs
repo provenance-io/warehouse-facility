@@ -4,8 +4,8 @@ use crate::msg::{Authorize, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, Va
 use crate::state::{
     find_pledge_ids_with_assets, get_asset_ids, get_asset_ids_by_filter, get_assets,
     get_paydown_ids, get_paydowns, get_pledge_ids, get_pledges, load_paydown, load_pledge,
-    remove_assets, save_paydown, save_pledge, set_assets_state, Asset, AssetState, Facility,
-    Paydown, PaydownState, Pledge, PledgeState,
+    remove_assets, save_paydown, save_pledge, set_assets_state, Asset, AssetState, ContractParty,
+    Facility, Paydown, PaydownKind, PaydownSaleInfo, PaydownState, Pledge, PledgeState,
 };
 use crate::utils::{vec_contains, vec_has_any};
 use cosmwasm_std::{
@@ -200,6 +200,23 @@ pub fn execute(
             assets,
             total_paydown,
         } => propose_paydown(deps, env, info, contract_info, id, assets, total_paydown),
+        ExecuteMsg::ProposePaydownAndSell {
+            id,
+            assets,
+            total_paydown,
+            buyer,
+            purchase_price,
+        } => propose_paydown_and_sell(
+            deps,
+            env,
+            info,
+            contract_info,
+            id,
+            assets,
+            total_paydown,
+            buyer,
+            purchase_price,
+        ),
         ExecuteMsg::AcceptPaydown { id } => accept_paydown(deps, env, info, contract_info, id),
         ExecuteMsg::CancelPaydown { id } => cancel_paydown(deps, env, info, contract_info, id),
         ExecuteMsg::ExecutePaydown { id } => execute_paydown(deps, env, info, contract_info, id),
@@ -333,11 +350,11 @@ fn accept_pledge(
     let advance_funds = info
         .funds
         .get(0)
-        .ok_or(ContractError::MissingPledgeAdvance {})?;
+        .ok_or(ContractError::MissingPledgeAdvanceFunds {})?;
     if (advance_funds.denom != contract_info.facility.stablecoin_denom)
         || (advance_funds.amount != pledge.total_advance.into())
     {
-        return Err(ContractError::InsufficientPledgeAdvance {
+        return Err(ContractError::InsufficientPledgeAdvanceFunds {
             need: pledge.total_advance.to_u128().unwrap(),
             need_denom: contract_info.facility.stablecoin_denom,
             received: advance_funds.amount.u128(),
@@ -555,15 +572,21 @@ fn propose_paydown(
         id,
         assets,
         total_paydown,
+        kind: PaydownKind::PaydownOnly,
         state: PaydownState::Proposed,
+        parties_accepted: vec![],
+        sale_info: None,
     };
 
     // make sure that the originator sent the appropriate stablecoin
-    let paydown_funds = info.funds.get(0).ok_or(ContractError::MissingPaydown {})?;
+    let paydown_funds = info
+        .funds
+        .get(0)
+        .ok_or(ContractError::MissingPaydownFunds {})?;
     if (paydown_funds.denom != contract_info.facility.stablecoin_denom)
         || (paydown_funds.amount != paydown.total_paydown.into())
     {
-        return Err(ContractError::InsufficientPaydown {
+        return Err(ContractError::InsufficientPaydownFunds {
             need: paydown.total_paydown.to_u128().unwrap(),
             need_denom: contract_info.facility.stablecoin_denom,
             received: paydown_funds.amount.u128(),
@@ -613,15 +636,162 @@ fn propose_paydown(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
+fn propose_paydown_and_sell(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    contract_info: ContractInfo,
+    id: String,
+    assets: Vec<String>,
+    total_paydown: u64,
+    buyer: Addr,
+    purchase_price: u64,
+) -> Result<Response<ProvenanceMsg>, ContractError> {
+    // ensure that a paydown with the specified id doesn't already exist
+    let paydown = load_paydown(deps.storage, id.as_bytes());
+    if let Ok(v) = paydown {
+        return Err(ContractError::PaydownAlreadyExists { id: v.id });
+    }
+
+    // ensure that the included assets are in the inventory
+    if !assets_in_inventory(deps.storage, Some(AssetState::Inventory), &assets) {
+        return Err(ContractError::AssetsNotInInventory {});
+    }
+
+    // ensure the contract has privs on the escrow marker
+    let querier = ProvenanceQuerier::new(&deps.querier);
+    let escrow_marker =
+        querier.get_marker_by_address(contract_info.facility.escrow_marker.clone())?;
+    if !marker_has_grant(
+        escrow_marker.clone(),
+        AccessGrant {
+            address: env.contract.address,
+            permissions: vec![MarkerAccess::Transfer, MarkerAccess::Withdraw],
+        },
+    ) {
+        return Err(ContractError::MissingEscrowMarkerGrant {});
+    }
+
+    // create the paydown
+    let paydown = Paydown {
+        id,
+        assets,
+        total_paydown,
+        kind: PaydownKind::PaydownAndSell,
+        state: PaydownState::Proposed,
+        parties_accepted: vec![],
+        sale_info: Some(PaydownSaleInfo {
+            buyer,
+            price: purchase_price,
+        }),
+    };
+
+    // make sure that the originator sent the appropriate stablecoin
+    let paydown_funds = info
+        .funds
+        .get(0)
+        .ok_or(ContractError::MissingPaydownFunds {})?;
+    if (paydown_funds.denom != contract_info.facility.stablecoin_denom)
+        || (paydown_funds.amount != paydown.total_paydown.into())
+    {
+        return Err(ContractError::InsufficientPaydownFunds {
+            need: paydown.total_paydown.to_u128().unwrap(),
+            need_denom: contract_info.facility.stablecoin_denom,
+            received: paydown_funds.amount.u128(),
+            received_denom: paydown_funds.denom.clone(),
+        });
+    }
+
+    // messages to include in transaction
+    let messages = vec![
+        // forward stablecoin to escrow marker account
+        BankMsg::Send {
+            to_address: escrow_marker.address.to_string(),
+            amount: coins(
+                paydown.total_paydown.into(),
+                contract_info.facility.stablecoin_denom,
+            ),
+        }
+        .into(),
+    ];
+
+    // save the paydown
+    save_paydown(deps.storage, &paydown.id.as_bytes(), &paydown)?;
+
+    // update the asset(s) state in the facility inventory
+    set_assets_state(deps.storage, AssetState::PaydownProposed, &paydown.assets)?;
+
+    // get the pledges affected by this paydown
+    let affected_pledges = find_pledge_ids_with_assets(
+        deps.storage,
+        paydown.assets,
+        Some(PledgeState::Executed),
+        None,
+        None,
+    )?;
+
+    // TODO: Anything else to do at this state? How do we handle the asset marker(s) (assets being payed down
+    //       can come from multiple pledges). CoNfUsEd!
+
+    Ok(Response {
+        submessages: vec![],
+        messages,
+        attributes: vec![
+            attr("action", "propose_paydown_and_sell"),
+            attr("affected_pledges", affected_pledges.join(",")),
+        ],
+        data: None,
+    })
+}
+
 fn accept_paydown(
     deps: DepsMut,
-    _env: Env,
-    _info: MessageInfo,
-    _contract_info: ContractInfo,
+    env: Env,
+    info: MessageInfo,
+    contract_info: ContractInfo,
     id: String,
 ) -> Result<Response<ProvenanceMsg>, ContractError> {
     // locate the paydown
     let mut paydown = load_paydown(deps.storage, id.as_bytes())?;
+
+    // extract the sale info
+    let sale_info = paydown.sale_info.as_ref();
+
+    // ensure the sender has a right to accept this paydown proposal
+    let mut accepting_party = ContractParty::Warehouse;
+    match paydown.kind {
+        PaydownKind::PaydownOnly => {
+            // only the warehouse in this facility can accept this paydown
+            if contract_info.facility.warehouse != info.sender {
+                return Err(ContractError::Unauthorized {});
+            }
+        }
+
+        PaydownKind::PaydownAndSell => {
+            // only the warehouse in this facility or the buyer of the assets can accept this paydown
+            if contract_info.facility.warehouse == info.sender {
+                accepting_party = ContractParty::Warehouse;
+            } else if sale_info.unwrap().buyer == info.sender {
+                accepting_party = ContractParty::Buyer;
+            } else {
+                return Err(ContractError::Unauthorized {});
+            }
+        }
+    }
+
+    // ensure that the accepting party hasn't already accepted
+    if paydown
+        .parties_accepted
+        .clone()
+        .into_iter()
+        .find(|x| x == &accepting_party)
+        != None
+    {
+        return Err(ContractError::PaydownPartyAlreadyAccepted {
+            party: accepting_party,
+        });
+    }
 
     // only paydowns that are in the "PROPOSED" state can be accepted
     if paydown.state != PaydownState::Proposed {
@@ -630,15 +800,77 @@ fn accept_paydown(
         });
     }
 
-    // TODO
+    // ensure the contract has privs on the escrow marker
+    let querier = ProvenanceQuerier::new(&deps.querier);
+    let escrow_marker =
+        querier.get_marker_by_address(contract_info.facility.escrow_marker.clone())?;
+    if !marker_has_grant(
+        escrow_marker.clone(),
+        AccessGrant {
+            address: env.contract.address,
+            permissions: vec![MarkerAccess::Transfer, MarkerAccess::Withdraw],
+        },
+    ) {
+        return Err(ContractError::MissingEscrowMarkerGrant {});
+    }
+
+    let mut messages = vec![];
+
+    if accepting_party == ContractParty::Buyer {
+        // make sure that the buyer sent the appropriate stablecoin
+        let paydown_funds = info
+            .funds
+            .get(0)
+            .ok_or(ContractError::MissingPurchaseFunds {})?;
+        if (paydown_funds.denom != contract_info.facility.stablecoin_denom)
+            || (paydown_funds.amount != sale_info.unwrap().price.into())
+        {
+            return Err(ContractError::InsufficientPurchaseFunds {
+                need: sale_info.unwrap().price.to_u128().unwrap(),
+                need_denom: contract_info.facility.stablecoin_denom,
+                received: paydown_funds.amount.u128(),
+                received_denom: paydown_funds.denom.clone(),
+            });
+        }
+
+        // forward stablecoin to escrow marker account
+        messages.push(
+            BankMsg::Send {
+                to_address: escrow_marker.address.to_string(),
+                amount: coins(
+                    sale_info.unwrap().price.into(),
+                    contract_info.facility.stablecoin_denom,
+                ),
+            }
+            .into(),
+        );
+    }
 
     // update the paydown
-    paydown.state = PaydownState::Accepted;
+    paydown.parties_accepted.push(accepting_party);
+    match paydown.kind {
+        PaydownKind::PaydownOnly => {
+            // for regular paydowns, only the warehouse needs to accept
+            if vec_contains(&paydown.parties_accepted, &[ContractParty::Warehouse]) {
+                paydown.state = PaydownState::Accepted;
+            }
+        }
+
+        PaydownKind::PaydownAndSell => {
+            // for paydown+sell, both the warehouse and the buyer needs to accept
+            if vec_contains(
+                &paydown.parties_accepted,
+                &[ContractParty::Warehouse, ContractParty::Buyer],
+            ) {
+                paydown.state = PaydownState::Accepted;
+            }
+        }
+    }
     save_paydown(deps.storage, &paydown.id.as_bytes(), &paydown)?;
 
     Ok(Response {
         submessages: vec![],
-        messages: vec![],
+        messages,
         attributes: vec![attr("action", "accept_paydown")],
         data: Some(to_binary(&paydown)?),
     })
@@ -680,15 +912,30 @@ fn cancel_paydown(
     }
 
     // messages to include in transaction
-    let messages = vec![
+    let mut messages = vec![
         // withdraw paydown funds from the escrow marker account to the originator
         withdraw_coins(
-            escrow_marker.denom,
+            escrow_marker.clone().denom,
             paydown.total_paydown.into(),
             contract_info.facility.stablecoin_denom.clone(),
             contract_info.facility.originator,
         )?,
     ];
+
+    if paydown.kind == PaydownKind::PaydownAndSell
+        && vec_contains(&paydown.parties_accepted, &[ContractParty::Buyer])
+    {
+        // extract the sale info
+        let sale_info = paydown.sale_info.as_ref();
+
+        // withdraw purchase funds from the escrow marker account to the buyer
+        messages.push(withdraw_coins(
+            escrow_marker.denom,
+            sale_info.unwrap().price.into(),
+            contract_info.facility.stablecoin_denom,
+            sale_info.unwrap().clone().buyer,
+        )?);
+    }
 
     // TODO: Anything else to do at this state (undo proposal)?
 
@@ -742,12 +989,22 @@ fn execute_paydown(
     let mut messages = vec![
         // withdraw advance funds from the escrow marker account to the warehouse
         withdraw_coins(
-            escrow_marker.denom,
+            escrow_marker.clone().denom,
             paydown.total_paydown.into(),
             contract_info.facility.stablecoin_denom.clone(),
             contract_info.facility.warehouse,
         )?,
     ];
+
+    if paydown.kind == PaydownKind::PaydownAndSell {
+        // withdraw purchase funds from the escrow marker account to the originator
+        messages.push(withdraw_coins(
+            escrow_marker.denom,
+            paydown.sale_info.as_ref().unwrap().price.into(),
+            contract_info.facility.stablecoin_denom.clone(),
+            contract_info.facility.originator.clone(),
+        )?);
+    }
 
     // TODO: value ownership change for asset markers. Waiting on metadata module.
 

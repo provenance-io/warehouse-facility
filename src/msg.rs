@@ -140,11 +140,29 @@ pub enum ExecuteMsg {
         // The unique identifier of the paydown.
         id: String,
 
-        // A list of assets to include in the pledge.
+        // A list of asset(s) to include in the pledge.
         assets: Vec<String>,
 
-        // The total proposed paydown for the pledged assets.
+        // The total proposed paydown for the pledged asset(s).
         total_paydown: u64,
+    },
+
+    // Propose a paydown of a pledge to the warehouse facility, selling the asset(s) to a third-party investor (originator)
+    ProposePaydownAndSell {
+        // The unique identifier of the paydown.
+        id: String,
+
+        // A list of asset(s) to include in the pledge.
+        assets: Vec<String>,
+
+        // The total proposed paydown for the pledged asset(s).
+        total_paydown: u64,
+
+        // The address of the buyer.
+        buyer: Addr,
+
+        // The purchase price of the asset(s).
+        purchase_price: u64,
     },
 
     // Accept a proposal to paydown assets in the warehouse facility (warehouse)
@@ -251,6 +269,34 @@ impl Validate for ExecuteMsg {
                 }
             }
 
+            ExecuteMsg::ProposePaydownAndSell {
+                id,
+                assets,
+                total_paydown: _,
+                buyer,
+                purchase_price: _,
+            } => {
+                // validate the paydown id
+                if Uuid::parse_str(id).is_err() {
+                    invalid_fields.push("id");
+                }
+
+                // validate the assets
+                if assets.is_empty() {
+                    invalid_fields.push("assets");
+                }
+                for asset in assets {
+                    if Uuid::parse_str(&asset).is_err() {
+                        invalid_fields.push("asset");
+                    }
+                }
+
+                // validate the buyer address
+                if buyer.as_str().is_empty() {
+                    invalid_fields.push("buyer");
+                }
+            }
+
             ExecuteMsg::AcceptPaydown { id } => {
                 // validate the paydown id
                 if Uuid::parse_str(id).is_err() {
@@ -331,11 +377,22 @@ impl Authorize for ExecuteMsg {
                 }
             }
 
-            ExecuteMsg::AcceptPaydown { id: _ } => {
-                // only the warehouse in this facility can accept a paydown
-                if contract_info.facility.warehouse != sender {
+            ExecuteMsg::ProposePaydownAndSell {
+                id: _,
+                assets: _,
+                total_paydown: _,
+                buyer: _,
+                purchase_price: _,
+            } => {
+                // only the originator in this facility can propose a paydown
+                if contract_info.facility.originator != sender {
                     authorized = false;
                 }
+            }
+
+            ExecuteMsg::AcceptPaydown { id: _ } => {
+                // NOTE: Both the warehouse and a third-party buyer may accept a paydown,
+                //       therefore we authorize the signer in the message handler.
             }
 
             ExecuteMsg::CancelPaydown { id: _ } => {

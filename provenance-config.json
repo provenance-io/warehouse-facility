@@ -1,7 +1,7 @@
 {
     "contractLabel": "warehouse-facility",
     "build": {
-        "target": "develop"
+        "target": "all"
     },
     "binding": {
         "name": "sc",
@@ -40,6 +40,11 @@
             },
             {
                 "name": "warehouse",
+                "minHash": 100000,
+                "initialHash": 100000000
+            },
+            {
+                "name": "buyer",
                 "minHash": 100000,
                 "initialHash": 100000000
             }

@@ -1,3 +1,4 @@
+use crate::state::ContractParty;
 use cosmwasm_std::StdError;
 use thiserror::Error;
 
@@ -27,10 +28,10 @@ pub enum ContractError {
     MissingEscrowMarkerGrant {},
 
     #[error("Cannot accept pledge: Missing pledge advance funds")]
-    MissingPledgeAdvance {},
+    MissingPledgeAdvanceFunds {},
 
     #[error("Cannot accept pledge: Insufficient funds: need {need:?} {need_denom:?}, received {received:?} {received_denom:?}")]
-    InsufficientPledgeAdvance {
+    InsufficientPledgeAdvanceFunds {
         need: u128,
         need_denom: String,
         received: u128,
@@ -38,10 +39,10 @@ pub enum ContractError {
     },
 
     #[error("Cannot propose paydown: Missing paydown funds")]
-    MissingPaydown {},
+    MissingPaydownFunds {},
 
     #[error("Cannot propose paydown: Insufficient funds: need {need:?} {need_denom:?}, received {received:?} {received_denom:?}")]
-    InsufficientPaydown {
+    InsufficientPaydownFunds {
         need: u128,
         need_denom: String,
         received: u128,
@@ -53,6 +54,20 @@ pub enum ContractError {
 
     #[error("Cannot propose paydown: Assets not in inventory")]
     AssetsNotInInventory {},
+
+    #[error("Cannot accept paydown: Party {party:?} already accepted")]
+    PaydownPartyAlreadyAccepted { party: ContractParty },
+
+    #[error("Cannot accept paydown: Missing purchase funds")]
+    MissingPurchaseFunds {},
+
+    #[error("Cannot accept paydown: Insufficient purchase funds: need {need:?} {need_denom:?}, received {received:?} {received_denom:?}")]
+    InsufficientPurchaseFunds {
+        need: u128,
+        need_denom: String,
+        received: u128,
+        received_denom: String,
+    },
 }
 
 impl From<ContractError> for StdError {
