@@ -25,28 +25,28 @@
         "keys": [
             {
                 "name": "omnibus",
-                "minHash": 100000,
-                "initialHash": 100000000
+                "minHash": 1000000000,
+                "initialHash": 10000000000000
             },
             {
                 "name": "portfolio_manager",
-                "minHash": 100000,
-                "initialHash": 100000000
+                "minHash": 1000000000,
+                "initialHash": 10000000000000
             },
             {
                 "name": "originator",
-                "minHash": 100000,
-                "initialHash": 100000000
+                "minHash": 1000000000,
+                "initialHash": 10000000000000
             },
             {
                 "name": "warehouse",
-                "minHash": 100000,
-                "initialHash": 100000000
+                "minHash": 1000000000,
+                "initialHash": 10000000000000
             },
             {
                 "name": "buyer",
-                "minHash": 100000,
-                "initialHash": 100000000
+                "minHash": 1000000000,
+                "initialHash": 10000000000000
             }
         ],
         "markers": [

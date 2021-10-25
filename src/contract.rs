@@ -147,18 +147,15 @@ pub fn instantiate(
     )?);
 
     // build response
-    Ok(Response {
-        submessages: vec![],
-        messages,
-        attributes: vec![
+    Ok(Response::new()
+        .add_messages(messages)
+        .add_attributes(vec![
             attr(
                 "contract_info",
                 format!("{:?}", get_contract_info(deps.storage)?),
             ),
             attr("action", "init"),
-        ],
-        data: None,
-    })
+        ]))
 }
 
 // smart contract execute entrypoint
@@ -307,12 +304,10 @@ fn propose_pledge(
         )?,
     ];
 
-    Ok(Response {
-        submessages: vec![],
-        messages,
-        attributes: vec![attr("action", "propose_pledge")],
-        data: Some(to_binary(&pledge)?),
-    })
+    Ok(Response::new()
+        .add_messages(messages)
+        .add_attribute("action", "propose_pledge")
+        .set_data(to_binary(&pledge)?))
 }
 
 fn accept_pledge(
@@ -371,20 +366,17 @@ fn accept_pledge(
                 pledge.total_advance.into(),
                 contract_info.facility.stablecoin_denom,
             ),
-        }
-        .into(),
+        },
     ];
 
     // update the pledge
     pledge.state = PledgeState::Accepted;
     save_pledge(deps.storage, &pledge.id.as_bytes(), &pledge)?;
 
-    Ok(Response {
-        submessages: vec![],
-        messages,
-        attributes: vec![attr("action", "accept_pledge")],
-        data: Some(to_binary(&pledge)?),
-    })
+    Ok(Response::new()
+        .add_messages(messages)
+        .add_attribute("action", "accept_pledge")
+        .set_data(to_binary(&pledge)?))
 }
 
 fn cancel_pledge(
@@ -468,12 +460,10 @@ fn cancel_pledge(
     // remove the assets from the inventory
     remove_assets(deps.storage, &pledge.assets)?;
 
-    Ok(Response {
-        submessages: vec![],
-        messages,
-        attributes: vec![attr("action", "cancel_pledge")],
-        data: Some(to_binary(&pledge)?),
-    })
+    Ok(Response::new()
+        .add_messages(messages)
+        .add_attribute("action", "cancel_pledge")
+        .set_data(to_binary(&pledge)?))
 }
 
 fn execute_pledge(
@@ -525,12 +515,9 @@ fn execute_pledge(
     // update the asset(s) state in the facility inventory
     set_assets_state(deps.storage, AssetState::Inventory, &pledge.assets)?;
 
-    Ok(Response {
-        submessages: vec![],
-        messages,
-        attributes: vec![attr("action", "execute_pledge")],
-        data: None,
-    })
+    Ok(Response::new()
+        .add_messages(messages)
+        .add_attribute("action", "execute_pledge"))
 }
 
 fn propose_paydown(
@@ -603,8 +590,7 @@ fn propose_paydown(
                 paydown.total_paydown.into(),
                 contract_info.facility.stablecoin_denom,
             ),
-        }
-        .into(),
+        },
     ];
 
     // save the paydown
@@ -625,15 +611,12 @@ fn propose_paydown(
     // TODO: Anything else to do at this state? How do we handle the asset marker(s) (assets being payed down
     //       can come from multiple pledges). CoNfUsEd!
 
-    Ok(Response {
-        submessages: vec![],
-        messages,
-        attributes: vec![
+    Ok(Response::new()
+        .add_messages(messages)
+        .add_attributes(vec![
             attr("action", "propose_paydown"),
             attr("affected_pledges", affected_pledges.join(",")),
-        ],
-        data: None,
-    })
+        ]))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -712,8 +695,7 @@ fn propose_paydown_and_sell(
                 paydown.total_paydown.into(),
                 contract_info.facility.stablecoin_denom,
             ),
-        }
-        .into(),
+        },
     ];
 
     // save the paydown
@@ -734,15 +716,12 @@ fn propose_paydown_and_sell(
     // TODO: Anything else to do at this state? How do we handle the asset marker(s) (assets being payed down
     //       can come from multiple pledges). CoNfUsEd!
 
-    Ok(Response {
-        submessages: vec![],
-        messages,
-        attributes: vec![
+    Ok(Response::new()
+        .add_messages(messages)
+        .add_attributes(vec![
             attr("action", "propose_paydown_and_sell"),
             attr("affected_pledges", affected_pledges.join(",")),
-        ],
-        data: None,
-    })
+        ]))
 }
 
 fn accept_paydown(
@@ -841,8 +820,7 @@ fn accept_paydown(
                     sale_info.unwrap().price.into(),
                     contract_info.facility.stablecoin_denom,
                 ),
-            }
-            .into(),
+            },
         );
     }
 
@@ -868,12 +846,10 @@ fn accept_paydown(
     }
     save_paydown(deps.storage, &paydown.id.as_bytes(), &paydown)?;
 
-    Ok(Response {
-        submessages: vec![],
-        messages,
-        attributes: vec![attr("action", "accept_paydown")],
-        data: Some(to_binary(&paydown)?),
-    })
+    Ok(Response::new()
+        .add_messages(messages)
+        .add_attribute("action", "accept_paydown")
+        .set_data(to_binary(&paydown)?))
 }
 
 fn cancel_paydown(
@@ -946,12 +922,10 @@ fn cancel_paydown(
     // update the asset(s) state in the facility inventory
     set_assets_state(deps.storage, AssetState::Inventory, &paydown.assets)?;
 
-    Ok(Response {
-        submessages: vec![],
-        messages,
-        attributes: vec![attr("action", "cancel_paydown")],
-        data: Some(to_binary(&paydown)?),
-    })
+    Ok(Response::new()
+        .add_messages(messages)
+        .add_attribute("action", "cancel_paydown")
+        .set_data(to_binary(&paydown)?))
 }
 
 fn execute_paydown(
@@ -1066,16 +1040,13 @@ fn execute_paydown(
         messages.push(destroy_marker(pledge.asset_marker_denom.clone())?);
     }
 
-    Ok(Response {
-        submessages: vec![],
-        messages,
-        attributes: vec![
+    Ok(Response::new()
+        .add_messages(messages)
+        .add_attributes(vec![
             attr("action", "execute_paydown"),
             attr("affected_pledges", affected_pledges.join(",")),
             attr("closed_pledges", closed_pledges.join(",")),
-        ],
-        data: None,
-    })
+        ]))
 }
 
 fn get_facility_info(store: &dyn Storage) -> StdResult<Facility> {
